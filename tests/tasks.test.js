@@ -7,14 +7,32 @@ const db = require("../db");
 
 const NON_EXISTENT_ID = Number.MAX_SAFE_INTEGER;
 
-async function createTask(title = "Tarefa de teste") {
+async function createTask(title = "Tarefa de teste", date = "14/10/2026") {
   const response = await request(app).post("/tasks").send({
     title,
-    date: "14/10/2026"
+    date
   });
 
   assert.equal(response.status, 201);
   return response.body;
+}
+
+async function assertInvalidDateIsRejected(date) {
+  const before = await request(app).get("/tasks");
+  const response = await request(app).post("/tasks").send({
+    title: "Tarefa com data inválida",
+    date
+  });
+  const after = await request(app).get("/tasks");
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(response.body, {
+    error: "Date must be a valid date in dd/mm/yyyy format"
+  });
+  assert.deepEqual(
+    after.body.map(({ id }) => id),
+    before.body.map(({ id }) => id)
+  );
 }
 
 // Enquanto não existe uma rota para concluir tarefas (issues #2 e #11),
@@ -153,6 +171,46 @@ test("POST /tasks creates a new task", async () => {
   assert.equal(response.body.completed, false);
   assert.equal(response.body.date, newTask.date);
   assert.equal(response.body.completionDate, null);
+});
+
+test("POST /tasks accepts valid dates and preserves task behavior", async () => {
+  for (const date of ["20/10/2026", "29/02/2024"]) {
+    const task = await createTask(`Tarefa para ${date}`, date);
+
+    assert.equal(task.title, `Tarefa para ${date}`);
+    assert.equal(task.completed, false);
+    assert.equal(task.date, date);
+    assert.equal(task.completionDate, null);
+  }
+});
+
+test("POST /tasks rejects dates that do not match dd/mm/yyyy", async () => {
+  for (const date of [
+    "2026-10-20",
+    "1/10/2026",
+    "20/1/2026",
+    "20-10-2026",
+    "20/10/26",
+    "20/10/2026 ",
+    "20/10/2026\n",
+    20102026
+  ]) {
+    await assertInvalidDateIsRejected(date);
+  }
+});
+
+test("POST /tasks rejects dates that do not exist", async () => {
+  for (const date of [
+    "31/02/2026",
+    "15/13/2026",
+    "00/10/2026",
+    "32/01/2026",
+    "15/00/2026",
+    "29/02/2025",
+    "31/04/2026"
+  ]) {
+    await assertInvalidDateIsRejected(date);
+  }
 });
 
 test("DELETE /tasks/:id removes an existing task", async () => {

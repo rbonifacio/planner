@@ -105,12 +105,55 @@ app.patch("/tasks/:id/reopen", (req, res) => {
   res.json(db.atualizaTarefa(id, { completed: false, completionDate: null }));
 });
 
+function isValidDueDate(date) {
+  if (typeof date !== "string" || date.length !== 10) {
+    return false;
+  }
+
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(date);
+  if (!match) {
+    return false;
+  }
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+
+  if (year === 0 || month < 1 || month > 12) {
+    return false;
+  }
+
+  const isLeapYear = year % 400 === 0 || (year % 4 === 0 && year % 100 !== 0);
+  const daysInMonth = [
+    31,
+    isLeapYear ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31
+  ][month - 1];
+
+  return day >= 1 && day <= daysInMonth;
+}
+
 // POST /tasks - "endpoint" que cadastra uma nova tarefa.
 app.post("/tasks", (req, res) => {
   const { title, date } = req.body;
 
   if (!title || !date) {
     return res.status(400).json({ error: "Title and date are required" });
+  }
+
+  if (!isValidDueDate(date)) {
+    return res.status(400).json({
+      error: "Date must be a valid date in dd/mm/yyyy format"
+    });
   }
 
   res.status(201).json(db.cadastraTarefa({ title, date }));
