@@ -10,6 +10,18 @@ Use o parâmetro `status` em `GET /tasks` para filtrar as tarefas:
 
 Valores de `status` diferentes de `pendente` e `concluida` retornam `400 Bad Request`.
 
+## Remover tarefas concluídas
+
+Use `DELETE /tasks/completed` para remover todas as tarefas concluídas de uma só vez. A resposta informa a quantidade removida:
+
+```json
+{
+  "removedCount": 3
+}
+```
+
+As tarefas pendentes permanecem disponíveis.
+
 ## Buscar tarefas pelo título
 
 Use o parâmetro `title` em `GET /tasks` para retornar as tarefas cujo título contém o termo informado, sem diferenciar maiúsculas e minúsculas. Os parâmetros podem ser combinados:

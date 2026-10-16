@@ -163,6 +163,16 @@
         }
       }
     },
+    "/tasks/completed": {
+      "delete": {
+        "description": "Remove todas as tarefas concluídas e informa quantas foram removidas.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/tasks/{id}/reopen": {
       "patch": {
         "description": "",

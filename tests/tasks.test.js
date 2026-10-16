@@ -17,8 +17,6 @@ async function createTask(title = "Tarefa de teste") {
   return response.body;
 }
 
-// Enquanto não existe uma rota para concluir tarefas (issues #2 e #11),
-// os testes marcam a tarefa como concluída diretamente no banco de dados.
 function markTaskCompleted(task) {
   db.atualizaTarefa(task.id, { completed: true, completionDate: "13/10/2026" });
 }
@@ -185,6 +183,67 @@ test("DELETE /tasks/:id returns 404 for a non-existent task", async () => {
 
   assert.equal(response.status, 404);
   assert.deepEqual(response.body, { error: "Task not found" });
+});
+
+test("DELETE /tasks/completed removes completed tasks", async () => {
+  const completedTask = await createTask("Tarefa concluída removida em lote");
+  const anotherCompletedTask = await createTask("Outra tarefa concluída removida em lote");
+  markTaskCompleted(completedTask);
+  markTaskCompleted(anotherCompletedTask);
+
+  const response = await request(app).delete("/tasks/completed");
+
+  assert.equal(response.status, 200);
+  assert.ok(response.body.removedCount >= 2);
+
+  for (const task of [completedTask, anotherCompletedTask]) {
+    const deletedTask = await request(app).get(`/tasks/${task.id}`);
+    assert.equal(deletedTask.status, 404);
+  }
+});
+
+test("DELETE /tasks/completed returns zero when there are no completed tasks", async () => {
+  await request(app).delete("/tasks/completed");
+  const pendingTask = await createTask("Tarefa pendente sem concluídas");
+
+  const response = await request(app).delete("/tasks/completed");
+  const pendingAfter = await request(app).get(`/tasks/${pendingTask.id}`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { removedCount: 0 });
+  assert.equal(pendingAfter.status, 200);
+  assert.equal(pendingAfter.body.completed, false);
+});
+
+test("DELETE /tasks/completed preserves pending tasks", async () => {
+  const pendingTask = await createTask("Tarefa pendente preservada pela limpeza");
+  const completedTask = await createTask("Tarefa concluída removida pela limpeza");
+  markTaskCompleted(completedTask);
+
+  const response = await request(app).delete("/tasks/completed");
+  const pendingAfter = await request(app).get(`/tasks/${pendingTask.id}`);
+  const completedAfter = await request(app).get(`/tasks/${completedTask.id}`);
+
+  assert.equal(response.status, 200);
+  assert.equal(pendingAfter.status, 200);
+  assert.deepEqual(pendingAfter.body, pendingTask);
+  assert.equal(completedAfter.status, 404);
+});
+
+test("DELETE /tasks/completed reports the exact number of removed tasks", async () => {
+  const completedTasks = await Promise.all([
+    createTask("Tarefa concluída para contagem 1"),
+    createTask("Tarefa concluída para contagem 2"),
+    createTask("Tarefa concluída para contagem 3")
+  ]);
+  completedTasks.forEach(markTaskCompleted);
+
+  const completedBefore = await request(app).get("/tasks?status=concluida");
+  const response = await request(app).delete("/tasks/completed");
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.removedCount, completedBefore.body.length);
+  assert.ok(completedBefore.body.length >= completedTasks.length);
 });
 
 test("PATCH /tasks/:id/reopen reopens a completed task", async () => {
