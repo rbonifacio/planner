@@ -17,6 +17,16 @@ Use o parâmetro `title` em `GET /tasks` para retornar as tarefas cujo título c
 - `GET /tasks?title=artigo` retorna as tarefas com "artigo" no título.
 - `GET /tasks?status=pendente&title=artigo` retorna apenas as pendentes com "artigo" no título.
 
+## Encerrar uma tarefa
+
+Use `PATCH /tasks/:id/complete` para encerrar uma tarefa pendente. Basta informar o id na URL; a requisição não tem corpo. A API registra a data atual (`dd/mm/aaaa`) em `completionDate` e retorna a tarefa atualizada.
+
+```bash
+curl -X PATCH http://localhost:3000/tasks/1/complete
+```
+
+- Tarefas já encerradas não podem ser encerradas novamente: a API retorna `409 Conflict` com `{ "error": "Task already completed" }`. Para encerrá-la de novo, reabra-a antes com `PATCH /tasks/:id/reopen`.
+- Ids inexistentes retornam `404 Not Found`.
 
 ## Organização do código
 

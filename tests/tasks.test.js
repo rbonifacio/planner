@@ -3,7 +3,6 @@ const assert = require("node:assert/strict");
 const request = require("supertest");
 
 const app = require("../server");
-const db = require("../db");
 
 const NON_EXISTENT_ID = Number.MAX_SAFE_INTEGER;
 
@@ -17,10 +16,16 @@ async function createTask(title = "Tarefa de teste") {
   return response.body;
 }
 
-// Enquanto não existe uma rota para concluir tarefas (issues #2 e #11),
-// os testes marcam a tarefa como concluída diretamente no banco de dados.
-function markTaskCompleted(task) {
-  db.atualizaTarefa(task.id, { completed: true, completionDate: "13/10/2026" });
+async function completeTask(task) {
+  const response = await request(app).patch(`/tasks/${task.id}/complete`);
+
+  assert.equal(response.status, 200);
+  return response.body;
+}
+
+// Fixa a data atual do teste em 16/10/2026 (meio-dia, para evitar problemas de fuso).
+function freezeToday(t) {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 9, 16, 12) });
 }
 
 test("GET /tasks returns all tasks", async () => {
@@ -85,7 +90,7 @@ test("GET /tasks returns an empty list when no title matches", async () => {
 test("GET /tasks?status=pendente returns only pending tasks", async () => {
   const pendingTask = await createTask("Tarefa pendente para filtro");
   const completedTask = await createTask("Tarefa concluída para filtro");
-  markTaskCompleted(completedTask);
+  await completeTask(completedTask);
 
   const response = await request(app).get("/tasks?status=pendente");
 
@@ -98,7 +103,7 @@ test("GET /tasks?status=pendente returns only pending tasks", async () => {
 test("GET /tasks?status=concluida returns only completed tasks", async () => {
   const pendingTask = await createTask("Tarefa pendente para filtro de concluídas");
   const completedTask = await createTask("Tarefa concluída para filtro de concluídas");
-  markTaskCompleted(completedTask);
+  await completeTask(completedTask);
 
   const response = await request(app).get("/tasks?status=concluida");
 
@@ -111,7 +116,7 @@ test("GET /tasks?status=concluida returns only completed tasks", async () => {
 test("GET /tasks returns tasks in every status when no status is provided", async () => {
   const pendingTask = await createTask("Tarefa pendente sem filtro");
   const completedTask = await createTask("Tarefa concluída sem filtro");
-  markTaskCompleted(completedTask);
+  await completeTask(completedTask);
 
   const response = await request(app).get("/tasks");
 
@@ -132,7 +137,7 @@ test("GET /tasks returns 400 for an unsupported status", async () => {
 test("GET /tasks combines status and title filters", async () => {
   await createTask("Relatório CombinedFilterProbe pendente");
   const completedTask = await createTask("Relatório CombinedFilterProbe concluído");
-  markTaskCompleted(completedTask);
+  await completeTask(completedTask);
 
   const response = await request(app).get("/tasks?status=concluida&title=combinedfilterprobe");
 
@@ -168,7 +173,7 @@ test("DELETE /tasks/:id removes an existing task", async () => {
 
 test("DELETE /tasks/:id does not remove a completed task", async () => {
   const task = await createTask();
-  markTaskCompleted(task);
+  const completed = await completeTask(task);
   const response = await request(app).delete(`/tasks/${task.id}`);
 
   assert.equal(response.status, 400);
@@ -177,7 +182,7 @@ test("DELETE /tasks/:id does not remove a completed task", async () => {
   const completedTask = await request(app).get(`/tasks/${task.id}`);
   assert.equal(completedTask.status, 200);
   assert.equal(completedTask.body.completed, true);
-  assert.equal(completedTask.body.completionDate, "13/10/2026");
+  assert.equal(completedTask.body.completionDate, completed.completionDate);
 });
 
 test("DELETE /tasks/:id returns 404 for a non-existent task", async () => {
@@ -189,7 +194,7 @@ test("DELETE /tasks/:id returns 404 for a non-existent task", async () => {
 
 test("PATCH /tasks/:id/reopen reopens a completed task", async () => {
   const task = await createTask();
-  markTaskCompleted(task);
+  await completeTask(task);
 
   const response = await request(app).patch(`/tasks/${task.id}/reopen`);
 
@@ -208,6 +213,75 @@ test("PATCH /tasks/:id/reopen returns 404 for a non-existent task", async () => 
 
   assert.equal(response.status, 404);
   assert.deepEqual(response.body, { error: "Task not found" });
+});
+
+test("PATCH /tasks/:id/complete completes a pending task with today's date", async (t) => {
+  freezeToday(t);
+  const task = await createTask("Tarefa a ser encerrada");
+
+  const response = await request(app).patch(`/tasks/${task.id}/complete`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, {
+    ...task,
+    completed: true,
+    completionDate: "16/10/2026"
+  });
+
+  const completedTask = await request(app).get(`/tasks/${task.id}`);
+  assert.equal(completedTask.body.completed, true);
+  assert.equal(completedTask.body.completionDate, "16/10/2026");
+});
+
+test("PATCH /tasks/:id/complete returns 409 for an already completed task", async (t) => {
+  freezeToday(t);
+  const task = await createTask();
+  await completeTask(task);
+
+  t.mock.timers.tick(24 * 60 * 60 * 1000);
+  const response = await request(app).patch(`/tasks/${task.id}/complete`);
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(response.body, { error: "Task already completed" });
+
+  const unchangedTask = await request(app).get(`/tasks/${task.id}`);
+  assert.equal(unchangedTask.body.completed, true);
+  assert.equal(unchangedTask.body.completionDate, "16/10/2026");
+});
+
+test("PATCH /tasks/:id/complete returns 404 for a non-existent task", async () => {
+  const response = await request(app).patch(`/tasks/${NON_EXISTENT_ID}/complete`);
+
+  assert.equal(response.status, 404);
+  assert.deepEqual(response.body, { error: "Task not found" });
+});
+
+test("PATCH /tasks/:id/complete completes a reopened task again", async (t) => {
+  freezeToday(t);
+  const task = await createTask();
+  await completeTask(task);
+  await request(app).patch(`/tasks/${task.id}/reopen`);
+
+  t.mock.timers.tick(24 * 60 * 60 * 1000);
+  const response = await request(app).patch(`/tasks/${task.id}/complete`);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.completed, true);
+  assert.equal(response.body.completionDate, "17/10/2026");
+});
+
+test("PATCH /tasks/:id/complete moves the task from pendente to concluida", async () => {
+  const task = await createTask("Tarefa StatusTransitionProbe");
+
+  const pendingBefore = await request(app).get("/tasks?status=pendente&title=statustransitionprobe");
+  assert.deepEqual(pendingBefore.body.map(({ id }) => id), [task.id]);
+
+  await completeTask(task);
+
+  const pendingAfter = await request(app).get("/tasks?status=pendente&title=statustransitionprobe");
+  const completedAfter = await request(app).get("/tasks?status=concluida&title=statustransitionprobe");
+  assert.deepEqual(pendingAfter.body, []);
+  assert.deepEqual(completedAfter.body.map(({ id }) => id), [task.id]);
 });
 
 test("PATCH /tasks/:id updates a task title", async () => {

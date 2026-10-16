@@ -14,6 +14,13 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 const db = require("./db");
 
+// Formata uma data no padrão dd/mm/aaaa usado pelas tarefas.
+function formatDate(date) {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${date.getFullYear()}`;
+}
+
 // GET /tasks - "endpoint" que recupera todas as tarefas.
 app.get("/tasks", (req, res) => {
   const { status, title } = req.query;
@@ -103,6 +110,23 @@ app.patch("/tasks/:id/reopen", (req, res) => {
   }
 
   res.json(db.atualizaTarefa(id, { completed: false, completionDate: null }));
+});
+
+// PATCH /tasks/:id/complete - "endpoint" que encerra uma tarefa pendente,
+// registrando a data atual (dd/mm/aaaa) como data de conclusão.
+app.patch("/tasks/:id/complete", (req, res) => {
+  const id = Number(req.params.id);
+  const task = db.consultaPorId(id);
+
+  if (!task) {
+    return res.status(404).json({ error: "Task not found" });
+  }
+
+  if (task.completed) {
+    return res.status(409).json({ error: "Task already completed" });
+  }
+
+  res.json(db.atualizaTarefa(id, { completed: true, completionDate: formatDate(new Date()) }));
 });
 
 // POST /tasks - "endpoint" que cadastra uma nova tarefa.
